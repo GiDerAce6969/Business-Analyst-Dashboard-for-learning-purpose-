@@ -1,6 +1,6 @@
 # Real-Time S&P 500 Stock Analysis Pipeline
 
-[![View Live Dashboard](https://img.shields.io/badge/View-Live_Dashboard-2ea44f?style=for-the-badge)]([YOUR_PUBLIC_LOOKER_STUDIO_LINK_HERE](https://lookerstudio.google.com/u/0/reporting/d5c939cb-83c9-407e-9647-22715763a277/page/DxKbF/edit))
+[![View Live Dashboard](https://img.shields.io/badge/View-Live_Dashboard-2ea44f?style=for-the-badge)](https://lookerstudio.google.com/u/0/reporting/d5c939cb-83c9-407e-9647-22715763a277/page/DxKbF/edit)
 
 
 
