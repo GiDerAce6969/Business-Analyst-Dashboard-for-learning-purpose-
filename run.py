@@ -1,52 +1,104 @@
-import yfinance as yf
+import streamlit as st
 import pandas as pd
-from pandas_gbq import to_gbq
-import os
-import requests # Import the requests library
+import yfinance as yf
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-# --- Configuration ---
-# Point to your downloaded service account JSON key
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/content/t-monument-474805-k0-b47f6153c116.json"
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="S&P 500 Simple Stock Analyzer",
+    page_icon="📈",
+    layout="wide"
+)
 
-# GCP Project and BigQuery details
-project_id = "t-monument-474805-k0"
-table_id = "stock_data.sp500_daily_data" # Dataset.TableName
+# --- Data Functions ---
 
-# Get the list of S&P 500 tickers
-print("Fetching S&P 500 tickers...")
+def get_sp500_tickers():
+    """
+    Returns a list of S&P 500 tickers.
+    In this simple version, the list is hardcoded for reliability.
+    """
+    # A smaller, representative list of S&P 500 companies
+    return [
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'JPM', 'JNJ', 'V', 'PG',
+        'UNH', 'HD', 'MA', 'BAC', 'DIS', 'PFE', 'XOM', 'CSCO', 'PEP', 'KO'
+    ]
 
-# Add a User-Agent header to the request
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+@st.cache_data(ttl=timedelta(hours=1)) # Cache data for 1 hour
+def get_stock_data(ticker, start_date, end_date):
+    """
+    Downloads historical stock data from Yahoo Finance.
+    """
+    try:
+        data = yf.download(ticker, start=start_date, end=end_date)
+        if data.empty:
+            st.warning(f"No data found for {ticker}. It might be a delisted stock or an error.")
+            return pd.DataFrame()
+        # Calculate some basic technical indicators
+        data['Moving_Avg_50'] = data['Close'].rolling(window=50).mean()
+        data['Daily_Return'] = data['Close'].pct_change()
+        return data
+    except Exception as e:
+        st.error(f"Error downloading data for {ticker}: {e}")
+        return pd.DataFrame()
 
-# Use requests to get the page content with headers, then pass it to pandas
-response = requests.get(url, headers=headers)
-response.raise_for_status() # Raise an exception for bad status codes
-sp500_tickers = pd.read_html(response.text)[0]['Symbol'].tolist()
+# --- Main Application ---
 
-print(f"Found {len(sp500_tickers)} tickers.")
+st.title("Simple S&P 500 Stock Analyzer")
+st.markdown("A demonstration of a simple stock analysis tool built with Streamlit and Yahoo Finance.")
 
-# Fetch 20 years of historical data for all tickers
-print("Fetching historical stock data...")
-# 'yfinance' can download data for multiple tickers at once
-# For very large requests, you might loop and append, but this is often fine
-all_data = yf.download(sp500_tickers, start="2004-01-01", end="2024-01-01")
+# --- Sidebar for User Input ---
+st.sidebar.header("Controls")
 
-# --- Transformation ---
-print("Transforming data...")
-# The downloaded data has a multi-level column index, we need to flatten it
-df = all_data.stack(level=1).reset_index()
-df = df.rename(columns={'level_1': 'Ticker'})
+tickers = get_sp500_tickers()
+selected_ticker = st.sidebar.selectbox("Select a Stock Ticker", tickers)
 
-# Calculate financial metrics
-df['Moving_Avg_50'] = df.groupby('Ticker')['Close'].transform(lambda x: x.rolling(50).mean())
-df['Daily_Return'] = df.groupby('Ticker')['Close'].transform(lambda x: x.pct_change())
+# Date range selection
+end_date = datetime.today()
+start_date = st.sidebar.date_input("Start Date", end_date - timedelta(days=365*5)) # Default to 5 years ago
 
-# --- Load to BigQuery ---
-print(f"Loading {len(df)} rows into BigQuery...")
-to_gbq(df,
-       destination_table=table_id,
-       project_id=project_id,
-       if_exists='replace') # Use 'replace' for the first run, 'append' for updates
+# --- Data Loading and Display ---
+if selected_ticker:
+    st.header(f"Analyzing: {selected_ticker}")
 
-print("Data loading complete!")
+    data = get_stock_data(selected_ticker, start_date, end_date)
+
+    if not data.empty:
+        # --- Key Metrics ---
+        st.subheader("Key Metrics")
+        latest_data = data.iloc[-1]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Last Close Price", f"${latest_data['Close']:.2f}")
+        col2.metric("50-Day Moving Avg", f"${latest_data['Moving_Avg_50']:.2f}")
+        col3.metric("Latest Volume", f"{latest_data['Volume']:,.0f}")
+        col4.metric("Daily Return", f"{latest_data['Daily_Return']:.2%}")
+
+        # --- Visualizations ---
+        st.subheader("Price Chart")
+        
+        # Create the plot
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(x=data.index,
+                        open=data['Open'],
+                        high=data['High'],
+                        low=data['Low'],
+                        close=data['Close'], name='Price'))
+        
+        fig.add_trace(go.Scatter(x=data.index, y=data['Moving_Avg_50'], 
+                                 mode='lines', name='50-Day MA', line=dict(color='orange', width=1)))
+
+        fig.update_layout(
+            title=f'{selected_ticker} Stock Price',
+            yaxis_title='Price (USD)',
+            xaxis_title='Date',
+            xaxis_rangeslider_visible=False # Hide the range slider
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- Raw Data ---
+        with st.expander("View Raw Data Table"):
+            st.dataframe(data)
+
+else:
+    st.info("Please select a ticker from the sidebar to begin analysis.")
